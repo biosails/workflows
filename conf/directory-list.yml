@@ -1,0 +1,64 @@
+---
+global:
+    - indir: data/raw
+    - outdir: data/analysis
+    - analysis_dir: data/analysis
+    - root: data/analysis
+    - bowtie2: "data/analysis/{$sample}/bowtie2"
+    - bowtie2_dir: "{$self->root}/{$sample}/bowtie2"
+    - samtools: "data/analysis/{$sample}/samtools"
+    - samtools_dir: "{$self->root}/{$sample}/samtools"
+    - file_rule: (Sample.*)$
+    - by_sample_outdir: 1
+    - find_by_dir: 1
+    - wait: 0
+rules:
+    - list1:
+        local:
+                - INPUT: "{$self->indir}/trimmomatic/{$sample}"
+                - OUTPUT: "{$self->bowtie2_dir}/{$sample}_aligned.sam"
+        process: |
+                #TASK tags={$sample}
+                #INDIR
+                {$self->indir}
+                #OUTDIR
+                {$self->outdir}
+                #INPUT
+                {$self->INPUT}
+                #OUTPUT
+                {$self->OUTPUT}
+    - list2:
+        local:
+                - outdir: "{$self->samtools}"
+                - INPUT: "{$self->bowtie2_dir}/{$sample}_aligned.sam"
+                - OUTPUT: "{$self->samtools_dir}/{$sample}_aligned.bam"
+                - var: "my special variable"
+        process: |
+                #TASK tags={$sample}
+                #INDIR
+                {$self->indir}
+                #OUTDIR
+                {$self->outdir}
+                #INPUT
+                {$self->INPUT}
+                #OUTPUT
+                {$self->OUTPUT}
+                #var
+                {$self->var}
+    - list3:
+        local:
+                - outdir: "{$self->samtools}"
+                - INPUT: "{$self->bowtie2_dir}/{$sample}_aligned.sam"
+                - OUTPUT: "{$self->samtools_dir}/{$sample}_aligned.bam"
+                - var: "my special variable"
+                - new_var: "This is new variable"
+        process: |
+                #TASK tags={$sample}
+                #INDIR
+                {$self->indir}
+                #OUTDIR
+                {$self->outdir}
+                #INPUT
+                {$self->INPUT}
+                #OUTPUT
+                {$self->OUTPUT}
