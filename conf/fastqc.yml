@@ -1,49 +1,61 @@
 ---
 global:
-    - indir: "data/raw" 
-    - outdir: "data/processed" 
+    - indir: "data/raw"
+    - outdir: "data/processed"
     - file_rule: (Sample.*)$
     - by_sample_outdir: 1
     - find_by_dir: 1
+    - wait: 0
     - trimmomatic_dir: "data/processed/{$sample}/trimmomatic"
     - trimmomatic: "data/processed/{$sample}/trimmomatic"
+    - raw_fastqc_dir: "data/processed/{$sample}"
+    - raw_fastqc: "data/processed/{$sample}"
     - analysis_dir: "data/processed/analysis"
-    - wait: 0
+    - READ1: "{$self->raw_fastqc_dir}/{$sample}_read1.fastq.gz"
+    - READ2: "{$self->raw_fastqc_dir}/{$sample}_read2.fastq.gz"
+    - TR1: "{$self->trimmomatic_dir}/{$sample}_read1_trimmomatic"
+    - TR2: "{$self->trimmomatic_dir}/{$sample}_read2_trimmomatic"
 rules:
     - raw_fastqc:
         local:
+                - CAT1: "{$self->indir}/*_R1*.fastq.gz"
+                - CAT2: "{$self->indir}/*_R1*.fastq.gz"
                 - before_meta: |
-                        HPC THINGS
-                        
+                        HPC Directives
+
                         #
                         #HPC jobname=raw_fastqc
                         #HPC module=gencore/1 gencore_dev gencore_qc
                         #HPC ntasks=1
                         #HPC procs=1
                         #HPC commands_per_node=1
-                        #HPC mem=12GB 
+                        #HPC mem=12GB
                         #HPC walltime=01:00:00
                         #HPC cpus_per_task=3
                         #HPC partition=serial
         process: |
-            #TASK tags={$sample}
-            mkdir -p {$self->{outdir}}/{$sample}_R1_FASTQC && \
-                cat {$self->indir}/*_R1*.fastq.gz >  {$self->outdir}/{$sample}_read1.fastq.gz && \
-                fastqc {$self->outdir}/{$sample}_read1.fastq.gz --extract -o {$self->{outdir}}/{$sample}_R1_FASTQC/ -t 3
-            
-            #TASK tags={$sample}
-            mkdir -p {$self->{outdir}}/{$sample}_R2_FASTQC && \
-                cat {$self->indir}/*_R2*.fastq.gz >  {$self->outdir}/{$sample}_read2.fastq.gz && \
-                fastqc {$self->outdir}/{$sample}_read2.fastq.gz --extract -o {$self->{outdir}}/{$sample}_R2_FASTQC/ -t 3 
+              #TASK tags={$sample}_R1
+              mkdir -p {$self->{outdir}}/{$sample}_R1_FASTQC && \
+                  cat {$self->CAT1} >  {$self->READ1} && \
+                  fastqc --extract \
+                  {$self->READ1} \
+                  -o {$self->{outdir}}/{$sample}_R1_FASTQC/ -t 3
+
+              #TASK tags={$sample}_R2
+              mkdir -p {$self->{outdir}}/{$sample}_R2_FASTQC && \
+                  cat {$self->CAT2} >  {$self->READ2} && \
+                  fastqc --extract \
+                  {$self->READ2} \
+                  -o {$self->{outdir}}/{$sample}_R2_FASTQC/ -t 3
     - trimmomatic:
         local:
                 - before_meta: |
-                        HPC THINGS
-                        
+                        HPC Directives
+
                         #
                         #HPC jobname=trimmomatic
                         #HPC module=gencore/1 gencore_dev gencore_qc
-                        #HPC mem=12GB 
+                        #HPC mem=12GB
                         #HPC walltime=02:00:00
                         #HPC cpus_per_task=12
                         #HPC ntasks=1
@@ -54,22 +66,26 @@ rules:
         process: |
                #TASK tags={$sample}
                trimmomatic \
-                  PE -threads 12 -trimlog {$self->outdir}/{$sample}_trimmomatic.log \
-                  {$self->indir}/{$sample}_read1.fastq.gz {$self->indir}/{$sample}_read2.fastq.gz \
-                  {$self->outdir}/{$sample}_read1_trimmomatic_1PE {$self->outdir}/{$sample}_read1_trimmomatic_1SE \
-                  {$self->outdir}/{$sample}_read2_trimmomatic_2PE {$self->outdir}/{$sample}_read2_trimmomatic_2SE \
+                  PE -threads 12 \
+                  -trimlog {$self->outdir}/{$sample}_trimmomatic.log \
+                  {$self->READ1} \
+                  {$self->READ2} \
+                  {$self->TR1}_1PE \
+                  {$self->TR1}_1SE \
+                  {$self->TR2}_2PE \
+                  {$self->TR2}_2SE \
                   ILLUMINACLIP:/scratch/nd48/Tools/bin/trimmomatic_adapter.fa:2:30:10 TRAILING:3 LEADING:3 SLIDINGWINDOW:4:15 MINLEN:36
     - trimmomatic_fastqc:
         local:
                 - OUTPUT: "{$self->outdir}/{$sample}"
                 - before_meta: |
-                        HPC THINGS
-                        
+                        HPC Directives
+
                         #
                         #HPC jobname=trimmomatic_fastqc
                         #HPC deps=trimmomatic
                         #HPC module=gencore/1 gencore_dev gencore_qc
-                        #HPC mem=12GB 
+                        #HPC mem=12GB
                         #HPC ntasks=1
                         #HPC procs=1
                         #HPC commands_per_node=1
@@ -80,22 +96,26 @@ rules:
         process: |
                 #TASK tags={$sample}
                 mkdir -p {$self->OUTPUT}_FASTQC_read1_TRIMMED && \
-                        fastqc {$self->INPUT}_read1_trimmomatic_1PE --extract -o {$self->OUTPUT}_FASTQC_read1_TRIMMED/ -t 4
+                    fastqc --extract \
+                    {$self->TR1}_1PE \
+                    -o {$self->OUTPUT}_FASTQC_read1_TRIMMED/ -t 4
 
                 #TASK tags={$sample}
                 mkdir -p {$self->OUTPUT}_FASTQC_read2_TRIMMED && \
-                        fastqc {$self->INPUT}_read2_trimmomatic_2PE --extract -o {$self->OUTPUT}_FASTQC_read2_TRIMMED/ -t 4
+                      fastqc --extract \
+                      {$self->TR2}_2PE \
+                      -o {$self->OUTPUT}_FASTQC_read2_TRIMMED/ -t 4
     - trimmomatic_gzip:
         local:
                 - indir: "{$self->trimmomatic}"
                 - INPUT: "{$self->trimmomatic}/{$sample}"
                 - before_meta: |
-                        HPC THINGS
-                        
+                        HPC Directives
+
                         #
                         #HPC jobname=trimmomatic_gzip
                         #HPC deps=trimmomatic
-                        #HPC mem=10GB 
+                        #HPC mem=10GB
                         #HPC module=gencore/1 gencore_dev gencore_qc
                         #HPC walltime=00:20:00
                         #HPC cpus_per_task=1
@@ -104,29 +124,26 @@ rules:
                         #
         process: |
                 #TASK tags={$sample}
-                gzip -f {$self->INPUT}_read1_trimmomatic_1PE
+                gzip -f {$self->TR1}_1PE
 
                 #TASK tags={$sample}
-                gzip -f {$self->INPUT}_read2_trimmomatic_2PE
+                gzip -f {$self->TR2}_2PE
     - remove_trimmomatic_logs:
         local:
                 - create_outdir: 0
-                - override_process: 1
                 - before_meta: |
-                        HPC THINGS
-                        
+                        HPC Directives
+
                         #
                         #HPC jobname=remove_trimmomatic_logs
                         #HPC deps=trimmomatic
                         #HPC module=gencore/1 gencore_dev gencore_qc
-                        #HPC mem=4GB 
+                        #HPC mem=4GB
                         #HPC walltime=00:20:00
                         #HPC cpus_per_task=1
                         #HPC commands_per_node=1
                         #HPC partition=serial
                         #
         process: |
-            {
-                print "find $self->{analysis_dir} -name \"*_trimmomatic.log\" -type f -delete\n\n" 
-                ($SILENTLY);
-            }
+                #TASK tags={$sample}
+                find {$self->trimmomatic_dir} -name "*_trimmomatic.log" -type f -delete

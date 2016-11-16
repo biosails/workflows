@@ -29,9 +29,6 @@ rules:
     - bowtie2:
         local:
                 - INPUT: "{$self->indir}/trimmomatic/{$sample}"
-                - INPUTS:
-                    - "{$self->INPUT}_read1_trimmomatic_1PE.gz"
-                    - "{$self->INPUT}_read2_trimmomatic_2PE.gz"
                 - OUTPUT: "{$self->bowtie2_dir}/{$sample}_aligned.sam"
                 - before_meta: |
                         HPC DIRECTIVES
@@ -48,8 +45,8 @@ rules:
                 #TASK tags={$sample}
                 mkdir -p {$self->bowtie2_dir} && \
                 bowtie2 -p 12 -x {$self->bowtie2_reference} \
-                -1 {$self->INPUTS->[0]} \
-                -2 {$self->INPUTS->[1]} \
+                -1 {$self->INPUT}_read1_trimmomatic_1PE.gz \
+                -2 {$self->INPUT}_read2_trimmomatic_2PE.gz \
                 -S {$self->OUTPUT}
     - samtools_view:
         local:
@@ -297,6 +294,7 @@ rules:
                 - indir: "{$self->samtools}"
                 - outdir: "{$self->samtools}"
                 - INPUT: "{$self->picard_dir}/{$sample}_withrg.csorted.cleaned.aligned.bam"
+                - SAM: "{$self->samtools_dir}/{$sample}_withrg.csorted.cleaned.aligned.bam"
                 - OUTPUT: "{$self->samtools_dir}/{$sample}_aligned.sorted.vcf.gz"
                 - before_meta: |
                         HPC DIRECTIVES
@@ -312,8 +310,10 @@ rules:
                         #
         process: |
                 #TASK tags={$sample}
+                ln -s {$self->INPUT} {$self->SAM} && \
+                samtools index {$self->SAM} && \
                 samtools mpileup -ugf {$self->reference} \
-                    {$self->PICARD} | bcftools call -vmO z -o \
+                    {$self->INPUT} | bcftools call -vmO z -o \
                     {$self->OUTPUT}
     - tabix_index:
         local:
