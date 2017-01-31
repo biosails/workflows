@@ -1,49 +1,68 @@
 ---
 global:
-    - indir: "data/raw"
     - outdir: "data/processed"
-    - file_rule: (Sample.*)$
-    - by_sample_outdir: 1
-    - find_by_dir: 1
-    - wait: 0
+    - analysis_dir: "data/processed/analysis"
     - trimmomatic_dir: "data/processed/{$sample}/trimmomatic"
     - trimmomatic: "data/processed/{$sample}/trimmomatic"
     - raw_fastqc_dir: "data/processed/{$sample}"
     - raw_fastqc: "data/processed/{$sample}"
-    - analysis_dir: "data/processed/analysis"
+    - file_rule: (Sample.*)$
+    - by_sample_outdir: 1
+    - find_by_dir: 1
+    - wait: 0
     - READ1: "{$self->raw_fastqc_dir}/{$sample}_read1.fastq.gz"
     - READ2: "{$self->raw_fastqc_dir}/{$sample}_read2.fastq.gz"
     - TR1: "{$self->trimmomatic_dir}/{$sample}_read1_trimmomatic"
     - TR2: "{$self->trimmomatic_dir}/{$sample}_read2_trimmomatic"
 rules:
-    - raw_fastqc:
+    - concat_reads:
         local:
                 - CAT1: "{$self->indir}/*_R1*.fastq.gz"
-                - CAT2: "{$self->indir}/*_R1*.fastq.gz"
+                - CAT2: "{$self->indir}/*_R2*.fastq.gz"
+                - before_meta: |
+                        HPC Directives
+
+                        #
+                        #HPC jobname=concat_reads
+                        #HPC module=gencore/1 gencore_dev gencore_qc
+                        #HPC ntasks=1
+                        #HPC procs=1
+                        #HPC commands_per_node=1
+                        #HPC mem=10GB
+                        #HPC walltime=01:30:00
+                        #HPC cpus_per_task=1
+                        #HPC partition=serial
+        process: |
+              #TASK tags={$sample}_R1
+              cat {$self->CAT1} >  {$self->READ1}
+
+              #TASK tags={$sample}_R2
+              cat {$self->CAT2} >  {$self->READ2}
+    - raw_fastqc:
+        local:
                 - before_meta: |
                         HPC Directives
 
                         #
                         #HPC jobname=raw_fastqc
+                        #HPC deps=concat_reads
                         #HPC module=gencore/1 gencore_dev gencore_qc
                         #HPC ntasks=1
                         #HPC procs=1
                         #HPC commands_per_node=1
                         #HPC mem=12GB
-                        #HPC walltime=01:00:00
+                        #HPC walltime=03:00:00
                         #HPC cpus_per_task=3
                         #HPC partition=serial
         process: |
               #TASK tags={$sample}_R1
               mkdir -p {$self->{outdir}}/{$sample}_R1_FASTQC && \
-                  cat {$self->CAT1} >  {$self->READ1} && \
                   fastqc --extract \
                   {$self->READ1} \
                   -o {$self->{outdir}}/{$sample}_R1_FASTQC/ -t 3
 
               #TASK tags={$sample}_R2
               mkdir -p {$self->{outdir}}/{$sample}_R2_FASTQC && \
-                  cat {$self->CAT2} >  {$self->READ2} && \
                   fastqc --extract \
                   {$self->READ2} \
                   -o {$self->{outdir}}/{$sample}_R2_FASTQC/ -t 3
@@ -54,9 +73,10 @@ rules:
 
                         #
                         #HPC jobname=trimmomatic
+                        #HPC deps=concat_reads
                         #HPC module=gencore/1 gencore_dev gencore_qc
                         #HPC mem=12GB
-                        #HPC walltime=02:00:00
+                        #HPC walltime=08:00:00
                         #HPC cpus_per_task=12
                         #HPC ntasks=1
                         #HPC procs=1
@@ -70,10 +90,10 @@ rules:
                   -trimlog {$self->outdir}/{$sample}_trimmomatic.log \
                   {$self->READ1} \
                   {$self->READ2} \
-                  {$self->TR1}_1PE \
-                  {$self->TR1}_1SE \
-                  {$self->TR2}_2PE \
-                  {$self->TR2}_2SE \
+                  {$self->TR1}_1PE.fastq \
+                  {$self->TR1}_1SE.fastq \
+                  {$self->TR2}_2PE.fastq \
+                  {$self->TR2}_2SE.fastq \
                   ILLUMINACLIP:/scratch/nd48/Tools/bin/trimmomatic_adapter.fa:2:30:10 TRAILING:3 LEADING:3 SLIDINGWINDOW:4:15 MINLEN:36
     - trimmomatic_fastqc:
         local:
@@ -97,13 +117,13 @@ rules:
                 #TASK tags={$sample}
                 mkdir -p {$self->OUTPUT}_FASTQC_read1_TRIMMED && \
                     fastqc --extract \
-                    {$self->TR1}_1PE \
+                    {$self->TR1}_1PE.fastq \
                     -o {$self->OUTPUT}_FASTQC_read1_TRIMMED/ -t 4
 
                 #TASK tags={$sample}
                 mkdir -p {$self->OUTPUT}_FASTQC_read2_TRIMMED && \
                       fastqc --extract \
-                      {$self->TR2}_2PE \
+                      {$self->TR2}_2PE.fastq \
                       -o {$self->OUTPUT}_FASTQC_read2_TRIMMED/ -t 4
     - trimmomatic_gzip:
         local:
@@ -114,20 +134,27 @@ rules:
 
                         #
                         #HPC jobname=trimmomatic_gzip
-                        #HPC deps=trimmomatic
+                        #HPC deps=trimmomatic_fastqc
                         #HPC mem=10GB
                         #HPC module=gencore/1 gencore_dev gencore_qc
-                        #HPC walltime=00:20:00
+                        #HPC walltime=08:00:00
                         #HPC cpus_per_task=1
-                        #HPC commands_per_node=1
+                        #HPC commands_per_node=2
+                        #HPC procs=1
                         #HPC partition=serial
                         #
         process: |
                 #TASK tags={$sample}
-                gzip -f {$self->TR1}_1PE
+                gzip -f {$self->TR1}_1PE.fastq
 
                 #TASK tags={$sample}
-                gzip -f {$self->TR2}_2PE
+                gzip -f {$self->TR2}_2PE.fastq
+
+                #TASK tags={$sample}
+                gzip -f {$self->TR1}_1SE.fastq
+
+                #TASK tags={$sample}
+                gzip -f {$self->TR2}_2SE.fastq
     - remove_trimmomatic_logs:
         local:
                 - create_outdir: 0
@@ -139,7 +166,7 @@ rules:
                         #HPC deps=trimmomatic
                         #HPC module=gencore/1 gencore_dev gencore_qc
                         #HPC mem=4GB
-                        #HPC walltime=00:20:00
+                        #HPC walltime=01:30:00
                         #HPC cpus_per_task=1
                         #HPC commands_per_node=1
                         #HPC partition=serial
