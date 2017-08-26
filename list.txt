@@ -1,0 +1,10 @@
+chipseq-noPeaks-deeptools2-mouse10.yml
+non-model-resequencing-anolis-BWA-MEM.yml
+non-model-resequencing-BWA-MEM.yml
+non-model-resequencing-dpPilion.yml
+non-model-resequencing.yml
+resequencing-human-complete.yml
+rnaseq_ercc.yml
+rnaseq_without_DGE-DM.yml
+rnaseq_without_DGE-Human38p2.yml
+rnaseq_without_DGE-Mouse10.yml
