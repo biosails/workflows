@@ -1,47 +1,38 @@
 ---
 global:
-    - indir: data/processed
-    - outdir: data/analysis
-    - script_dir: scripts
-    - conf_dir: conf
-    - raw_dir: data/raw
-    - raw: data/raw
-    - rename_dir: data/raw/rename
-    - rename: data/raw/rename
-    - trimmomatic_dir: "data/processed/{$sample}/trimmomatic"
-    - trimmomatic: "data/processed/{$sample}/trimmomatic"
-    - trimmomatic_fastqc_dir: "data/processed/{$sample}/trimmomatic_fastqc"
-    - trimmomatic_fastqc: "data/processed/{$sample}/trimmomatic_fastqc"
-    - analysis_dir: data/analysis/
-    - analysis: data/analysis
-    - file_rule: (Sample.*)$
-    - data_dir: "/scratch/Reference_Genomes/Public/Invertebrate/Drosophila_melanogaster/ENSEMBL-release-81-BDGP6"
-    - ANNOTATION:  "{$self->data_dir}/tr_Drosophila_melanogaster_BDGP6/Drosophila_melanogaster.BDGP6.81"
-    - REFERENCE: "{$self->data_dir}/Drosophila_melanogaster.BDGP6.dna.toplevel"
-    - htseq_dir: "data/analysis/Counts"
+    # ROOT Directory configurations
+    - indir:     data/processed
+    - outdir:    data/analysis
+    # Find Samples
+    - sample_rule: (Sample.*)$
     - by_sample_outdir: 1
     - find_by_dir: 1
-    - override_process: 0
-    - wait: 0
+    # Analsis Dir Setup
+    - analysis_dir: data/analysis/
+    - raw_dir:   data/raw
+    - rename_dir: data/raw/rename
+    - trimmomatic_dir: "data/processed/{$sample}/trimmomatic"
+    - trimmomatic_fastqc_dir: "data/processed/{$sample}/trimmomatic_fastqc"
+    - htseq_dir: "data/analysis/Counts"
+    #The data_dirs and very site specific variables  - be sure to change these!
+    - data_dir:  "/scratch/Reference_Genomes/Public/Invertebrate/Drosophila_melanogaster/ENSEMBL-release-81-BDGP6"
+    - ANNOTATION: "{$self->data_dir}/tr_Drosophila_melanogaster_BDGP6/Drosophila_melanogaster.BDGP6.81"
+    - REFERENCE: "{$self->data_dir}/Drosophila_melanogaster.BDGP6.dna.toplevel"
+    #HPC Directives
+    - HPC:
+       - module: 'gencore gencore_dev gencore_rnaseq'
+       - partition: 'serial'
+       - commands_per_node: 1
+       - cpus_per_task: 1
 rules:
     - create_analysis_dirs:
         local:
                 - create_outdir: 0
                 - override_process: 1
-                - before_meta: |
-                        HPC THINGS
-
-                        #
-                        #HPC jobname=create_analysis_dirs
-                        #HPC module=gencore/1 gencore_rnaseq
-                        #HPC mem=8GB
-                        #HPC walltime=00:20:00
-                        #HPC cpus_per_task=1
-                        #HPC procs=1
-                        #HPC ntasks=1
-                        #HPC account=gencore
-                        #HPC partition=serial
-                        #
+                - HPC:
+                   - walltime: '02:00:00'
+                   - mem: '4GB'
+                   - commands_per_node: 100
         process: |
             mkdir -p {$self->raw_dir}/rename && \
             mkdir -p {$self->analysis_dir} && \
@@ -53,23 +44,12 @@ rules:
             mkdir -p {$self->analysis_dir}/Counts/DESeq2
     - tophat2:
         local:
-                - create_outdir: 1
                 - indir: "{$self->trimmomatic_dir}"
-                - before_meta: |
-                        HPC THINGS
-
-                        #
-                        #HPC jobname=tophat2
-                        #HPC deps=create_analysis_dirs
-                        #HPC module=gencore/1 gencore_rnaseq
-                        #HPC mem=60GB
-                        #HPC walltime=12:00:00
-                        #HPC cpus_per_task=12
-                        #HPC procs=1
-                        #HPC ntasks=1
-                        #HPC account=gencore
-                        #HPC partition=serial
-                        #
+                - HPC:
+                   - deps: create_analysis_dirs
+                   - walltime: '12:00:00'
+                   - mem: '60GB'
+                   - cpus_per_task: 12
         process: |
             #TASK tags={$sample}
             tophat2 -o {$self->outdir} \
@@ -82,21 +62,12 @@ rules:
                 - create_outdir: 0
                 - INPUT: "{$self->indir}/accepted_hits.bam"
                 - OUTPUT: "{$self->analysis_dir}/BAMs/{$sample}_accepted_hits.bam"
-                - before_meta: |
-                        HPC THINGS
-
-                        #
-                        #HPC jobname=cufflinks
-                        #HPC deps=tophat2
-                        #HPC module=gencore/1 gencore_dev
-                        #HPC mem=60GB
-                        #HPC walltime=18:00:00
-                        #HPC cpus_per_task=12
-                        #HPC procs=1
-                        #HPC ntasks=1
-                        #HPC account=gencore
-                        #HPC partition=serial
-                        #
+                - HPC:
+                   - deps: tophat2
+                   - walltime: '18:00:00'
+                   - mem: '60GB'
+                   - cpus_per_task: 12
+                   - module: 'gencore/1 gencore_dev'
         process: |
                 #TASK tags={$sample}
                 chmod a+rwx {$self->analysis_dir}/{$sample} && \
@@ -109,21 +80,11 @@ rules:
         local:
                 - INPUT: "{$self->analysis_dir}/BAMs/{$sample}_accepted_hits.bam"
                 - OUTPUT: "{$self->analysis_dir}/BAMs/{$sample}_sorted.accepted_hits.bam"
-                - before_meta: |
-                        HPC THINGS
-
-                        #
-                        #HPC jobname=samtools_sort
-                        #HPC deps=cufflinks
-                        #HPC module=gencore/1 gencore_rnaseq
-                        #HPC mem=80GB
-                        #HPC walltime=18:00:00
-                        #HPC cpus_per_task=12
-                        #HPC procs=1
-                        #HPC ntasks=1
-                        #HPC account=gencore
-                        #HPC partition=serial
-                        #
+                - HPC:
+                   - deps: cufflinks
+                   - walltime: '18:00:00'
+                   - mem: '80GB'
+                   - cpus_per_task: 6
         process: |
                 #TASK tags={$sample}
                 samtools sort -n -@ 6 -O bam \
@@ -134,21 +95,11 @@ rules:
         local:
                 - INPUT: "{$self->analysis_dir}/BAMs/{$sample}_sorted.accepted_hits.bam"
                 - OUTPUT: "{$self->analysis_dir}/Counts/htseq_$name.txt"
-                - before_meta: |
-                        HPC THINGS
-
-                        #
-                        #HPC jobname=htseq_count
-                        #HPC deps=samtools_sort
-                        #HPC module=gencore/1 gencore_rnaseq
-                        #HPC mem=50GB
-                        #HPC walltime=18:00:00
-                        #HPC cpus_per_task=1
-                        #HPC procs=1
-                        #HPC ntasks=1
-                        #HPC account=gencore
-                        #HPC partition=serial
-                        #
+                - HPC:
+                   - deps: samtools_sort
+                   - walltime: '18:00:00'
+                   - mem: '50GB'
+                   - cpus_per_task: 1
         process: |
                 #TASK tags={$sample}
                 name=`echo {$sample}| sed s/Sample_//` && \
