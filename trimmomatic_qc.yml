@@ -15,7 +15,7 @@ global:
     - trimmomatic_dir: "{$self->root_out_dir}/{$sample}/trimmomatic"
     - raw_fastqc_dir: "{$self->root_out_dir}/{$sample}/raw_fastqc"
     # This variable is very specific to the sequencer used
-    - raw_fastq_dir: "{$self->root_in_dir}/{$sample}/inputFastq"
+    - raw_fastq_dir: "{$self->root_in_dir}/{$sample}"
     #TODO Update these for chunks
     - TR1: "{$self->trimmomatic_dir}/{$sample}_read1_trimmomatic"
     - TR2: "{$self->trimmomatic_dir}/{$sample}_read2_trimmomatic"
@@ -120,7 +120,6 @@ rules:
             -o {$self->OUTPUT}_FASTQC_read2_TRIMMED/ -t 4
     - trimmomatic_gzip:
         local:
-          - type: 'chunk'
           - indir: "{$self->trimmomatic_dir}"
           - outdir: "{$self->trimmomatic_dir}"
           - INPUT:
@@ -134,7 +133,7 @@ rules:
             - "{$self->TR1}_1SE.fastq.gz"
             - "{$self->TR2}_2SE.fastq.gz"
           - HPC:
-            - deps: trimmomatic
+            - deps: trimmomatic_fastqc
             - walltime: '05:00:00'
             - mem: '28GB'
             - module: 'gencore gencore_dev gencore_qc'
