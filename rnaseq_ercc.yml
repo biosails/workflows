@@ -13,11 +13,11 @@ global:
     - raw_dir:   data/raw
     - rename_dir: data/raw/rename
     - analysis_dir: data/ercc_analysis/
+    - htseq_dir: "data/ercc_analysis/Counts"
     # Reference Data
     - data_dir:  "/scratch/Reference_Genomes/Public/ERCC"
     - ANNOTATION: "{$self->data_dir}/ERCC92.gtf"
     - REFERENCE: "{$self->data_dir}/ERCC92"
-    - htseq_dir: "data/ercc_analysis/Counts"
     # HPC Directives
     - HPC:
        - account: 'gencore'
@@ -59,7 +59,6 @@ rules:
        ## to a particular directory
        ## We leave it here for now and move it in the move_data dir
         local:
-                - outdir: "{$self->analysis_dir}"
                 - INPUT: "{$self->indir}/accepted_hits.bam"
                 - OUTPUT: "{$self->analysis_dir}/BAMs/{$sample}_accepted_hits.bam"
                 - HPC:
@@ -83,6 +82,7 @@ rules:
                   - mem: '4GB'
                   - walltime: '10:00:00'
                   - cpus_per_task: 1
+                  - commands_per_node: 100
         process: |
                 #TASK tags={$sample}
                 mv {$self->INPUT} {$self->OUTPUT}; \
@@ -104,7 +104,7 @@ rules:
                     -o {$self->OUTPUT} \
                     {$self->INPUT}
     - htseq_count:
-        ## HtSeq count, or at least this iterations, requires that files be named a certain way
+        ## HtSeq count, or at least this version, requires that files be named a certain way
         ## And in the same directory
         local:
                 - INPUT: "{$self->analysis_dir}/BAMs/{$sample}_sorted.accepted_hits.bam"
