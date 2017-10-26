@@ -124,7 +124,7 @@ rules:
     - clean_dirs:
         ## Since we moved data around we will clean up the directories
         local:
-                - data_dir: 'data/processed'
+                - data_dir: 'data/ercc_analysis'
                 - override_process: 1
                 - HPC:
                   - deps: htseq_count
