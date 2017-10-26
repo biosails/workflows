@@ -1,0 +1,107 @@
+---
+global:
+    # ROOT Directory configurations
+    # Aligning against raw reeds
+    - indir: "./"
+    - outdir: "data/processed"
+    - root_in_dir: "./"
+    - root_out_dir: "data/processed"
+    # Find Samples
+    - sample_rule: (Sample.*)$
+    - by_sample_outdir: 1
+    - find_by_dir: 1
+    # Analsis Dir Setup
+    - analysis_dir: "data/analysis"
+    - jira_ticket: "NCB-234"
+    - trimmomatic_dir: "{$self->root_out_dir}/{$sample}/trimmomatic"
+    - raw_fastqc_dir: "{$self->root_out_dir}/{$sample}/raw_fastqc"
+    # This variable is very specific to the sequencer used
+    - raw_fastq_dir: "{$self->root_in_dir}/{$sample}"
+    #TODO Update these for chunks
+    - TR1: "{$self->trimmomatic_dir}/{$sample}_read1_trimmomatic"
+    - TR2: "{$self->trimmomatic_dir}/{$sample}_read2_trimmomatic"
+    - cont_dir: "data/processed/{$sample}/contamination"
+    - human_dir: "data/processed/{$sample}/contamination/HS_tophat2"
+    - mouse_dir: "data/processed/{$sample}/contamination/MM_tophat2"
+    - zf_dir: "data/processed/{$sample}/contamination/ZF_tophat2"
+    - READ1: "{$self->cont_dir}/{$sample}_R1_100k.fastq"
+    - READ2: "{$self->cont_dir}/{$sample}_R2_100k.fastq"
+    - data_dirz:  "/scratch/Reference_Genomes/Public/Vertebrate_other/Danio_rerio/ENSEMBL_release_84"
+    - ANNOTATIONz: "{$self->data_dirz}/transcriptome_index_danio_rerio/Danio_rerio.GRCz10.84"
+    - REFERENCEz: "{$self->data_dirz}/Danio_rerio.GRCz10.dna.toplevel"
+    - data_dirh:  "/scratch/Reference_Genomes/Public/Vertebrate_mammalian/Homo_sapiens/ENSEMBL-release-81-GRCh38"
+    - ANNOTATIONh: "{$self->data_dirh}/tr_Homo_sapiens.GRCh38/Homo_sapiens.GRCh38.81"
+    - REFERENCEh: "{$self->data_dirh}/Homo_sapiens.GRCh38.dna.toplevel"
+    - data_dirm:  "/scratch/Reference_Genomes/Public/Vertebrate_mammalian/Mus_musculus/ENSEMBL-release-82-GRCm38"
+    - ANNOTATIONm: "{$self->data_dirm}/tr_Mus_musculus_GRCm38/Mus_musculus.GRCm38.82"
+    - REFERENCEm: "{$self->data_dirm}/Mus_musculus.GRCm38.dna.toplevel"
+    - HPC:
+       - module: 'gencore gencore_dev gencore_rnaseq'
+       - partition: 'serial'
+       - commands_per_node: 1
+       - cpus_per_task: 1
+rules:
+    - gzip_subset:
+        local:
+          - indir: "{$self->trimmomatic}"
+          - outdir: "{$self->cont_dir}"
+          - INPUT: "{$self->trimmomatic}/{$sample}"
+          - HPC:
+            - walltime: '01:00:00'
+            - mem: '20GB'
+            - module: 'gencore gencore_dev gencore_qc'
+        process: |
+              #TASK tags={$sample}
+              gzip -c -d {$self->TR1}_1PE.fastq.gz | head -400000 > {$self->READ1}
+
+              #TASK tags={$sample}
+              gzip -c -d {$self->TR2}_2PE.fastq.gz | head -400000 > {$self->READ2}
+              
+    - tophat2_human:
+        local:
+          - indir: "{$self->cont_dir}"
+          - outdir: "{$self->human_dir}"
+          - HPC:
+            - deps: gzip_subset
+            - walltime: '03:00:00'
+            - mem: '60GB'
+            - cpus_per_task: 12
+        process: |
+              #TASK tags={$sample}
+              tophat2 -o {$self->outdir} \
+              --no-novel-juncs -p 12 --transcriptome-index={$self->ANNOTATIONh} \
+              {$self->{REFERENCEh}} \
+              {$self->READ1} \
+              {$self->READ2}
+    - tophat2_zf:
+        local:
+          - indir: "{$self->cont_dir}"
+          - outdir: "{$self->zf_dir}"
+          - HPC:
+            - deps: gzip_subset
+            - walltime: '03:00:00'
+            - mem: '60GB'
+            - cpus_per_task: 12
+        process: |
+              #TASK tags={$sample}
+              tophat2 -o {$self->outdir} \
+              --no-novel-juncs -p 12 --transcriptome-index={$self->ANNOTATIONz} \
+              {$self->{REFERENCEz}} \
+              {$self->READ1} \
+              {$self->READ2}
+    - tophat2_mouse:
+        local:
+          - indir: "{$self->cont_dir}"
+          - outdir: "{$self->mouse_dir}"
+          - HPC:
+            - deps: gzip_subset
+            - walltime: '03:00:00'
+            - mem: '60GB'
+            - cpus_per_task: 12
+        process: |
+              #TASK tags={$sample}
+              tophat2 -o {$self->outdir} \
+              --no-novel-juncs -p 12 --transcriptome-index={$self->ANNOTATIONm} \
+              {$self->{REFERENCEm}} \
+              {$self->READ1} \
+              {$self->READ2}

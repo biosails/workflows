@@ -1,8 +1,8 @@
 ---
 global:
     # Initial Directory Setup
-    - indir: data/processed
-    - outdir: data/ercc_analysis
+    - indir:     data/processed
+    - outdir:    data/ercc_analysis
     # Find Samples
     - sample_rule: (Sample.*)$
     - find_by_dir: 1
@@ -10,19 +10,19 @@ global:
     - by_sample_outdir: 1
     - trimmomatic_dir: "data/processed/{$sample}/trimmomatic"
     - trimmomatic_fastqc_dir: "data/processed/{$sample}/trimmomatic_fastqc"
-    - raw_dir: data/raw
+    - raw_dir:   data/raw
     - rename_dir: data/raw/rename
     - analysis_dir: data/ercc_analysis/
     # Reference Data
-    - data_dir: "/scratch/Reference_Genomes/Public/ERCC"
-    - ANNOTATION:  "{$self->data_dir}/ERCC92.gtf"
+    - data_dir:  "/scratch/Reference_Genomes/Public/ERCC"
+    - ANNOTATION: "{$self->data_dir}/ERCC92.gtf"
     - REFERENCE: "{$self->data_dir}/ERCC92"
     - htseq_dir: "data/ercc_analysis/Counts"
     # HPC Directives
     - HPC:
        - account: 'gencore'
        - partition: 'serial'
-       - module:  'gencore gencore_dev gencore_rnaseq'
+       - module: 'gencore gencore_dev gencore_rnaseq'
        - cpus_per_task: 1
        - commands_per_node: 1
 rules:
@@ -34,13 +34,10 @@ rules:
                   - mem: '2GB'
                   - walltime: '00:10:00'
         process: |
-            mkdir -p {$self->raw_dir}/rename && \
-            mkdir -p {$self->analysis_dir} && \
             mkdir -p {$self->analysis_dir}/FPKMs &&  \
             mkdir -p {$self->analysis_dir}/BAMs  && \
             mkdir -p {$self->analysis_dir}/Transcripts && \
             mkdir -p {$self->analysis_dir}/CUFFDIFF && \
-            mkdir -p {$self->analysis_dir}/Counts && \
             mkdir -p {$self->analysis_dir}/Counts/DESeq2
     - tophat2:
         local:
@@ -58,8 +55,11 @@ rules:
                 {$self->trimmomatic_dir}/{$sample}_read1_trimmomatic_1PE.fastq.gz \
                 {$self->trimmomatic_dir}/{$sample}_read2_trimmomatic_2PE.fastq.gz
     - cufflinks:
+       ## Cufflinks will only output a file name accepted_hits.bam
+       ## to a particular directory
+       ## We leave it here for now and move it in the move_data dir
         local:
-                - create_outdir: 0
+                - outdir: "{$self->analysis_dir}"
                 - INPUT: "{$self->indir}/accepted_hits.bam"
                 - OUTPUT: "{$self->analysis_dir}/BAMs/{$sample}_accepted_hits.bam"
                 - HPC:
@@ -69,27 +69,43 @@ rules:
                   - cpus_per_task: 12
         process: |
                 #TASK tags={$sample}
-                chmod a+rwx {$self->analysis_dir}/{$sample} && \
-                cufflinks -p 12 --no-update-check -o {$self->outdir} -G {$self->ANNOTATION} {$self->INPUT} && \
-                    cp {$self->INPUT} {$self->OUTPUT} && \
-                    cp {$self->outdir}/gene* {$self->analysis_dir}/FPKMs/{$sample}_gene_fpkms.txt && \
-                    cp {$self->outdir}/transcrip* {$self->analysis_dir}/Transcripts/{$sample}_transcripts.gtf
+                cufflinks -p 12 --no-update-check -o {$self->outdir} \
+                    -G {$self->ANNOTATION} {$self->INPUT}
+    - move_data:
+        ## We move data around here for downstream analysis
+        ## Some tool downstream requires its data to be in the same directory
+        local:
+                - outdir: "{$self->analysis_dir}"
+                - INPUT: "{$self->indir}/accepted_hits.bam"
+                - OUTPUT: "{$self->analysis_dir}/BAMs/{$sample}_accepted_hits.bam"
+                - HPC:
+                  - deps: cufflinks
+                  - mem: '4GB'
+                  - walltime: '10:00:00'
+                  - cpus_per_task: 1
+        process: |
+                #TASK tags={$sample}
+                mv {$self->INPUT} {$self->OUTPUT}; \
+                    mv {$self->outdir}/gene* {$self->analysis_dir}/FPKMs/{$sample}_gene_fpkms.txt;  \
+                    mv {$self->outdir}/transcrip* {$self->analysis_dir}/Transcripts/{$sample}_transcripts.gtf
     - samtools_sort:
         local:
+                - outdir: "{$self->analysis_dir}"
                 - INPUT: "{$self->analysis_dir}/BAMs/{$sample}_accepted_hits.bam"
                 - OUTPUT: "{$self->analysis_dir}/BAMs/{$sample}_sorted.accepted_hits.bam"
                 - HPC:
-                  - deps: cufflinks
+                  - deps: move_data
                   - mem: '80GB'
                   - walltime: '10:00:00'
                   - cpus_per_task: 6
         process: |
                 #TASK tags={$sample}
                 samtools sort -n -@ 6 -O bam \
-                    -T {$self->analysis_dir}/BAMs/{$sample}_sorted.accepted_hits.tmp \
                     -o {$self->OUTPUT} \
                     {$self->INPUT}
     - htseq_count:
+        ## HtSeq count, or at least this iterations, requires that files be named a certain way
+        ## And in the same directory
         local:
                 - INPUT: "{$self->analysis_dir}/BAMs/{$sample}_sorted.accepted_hits.bam"
                 - OUTPUT: "{$self->analysis_dir}/Counts/htseq_$name.txt"
@@ -105,3 +121,14 @@ rules:
                     {$self->INPUT} \
                     {$self->ANNOTATION} > {$self->OUTPUT} && \
                     sed -i '/^__.*/d'  {$self->OUTPUT}
+    - clean_dirs:
+        ## Since we moved data around we will clean up the directories
+        local:
+                - data_dir: 'data/processed'
+                - override_process: 1
+                - HPC:
+                  - deps: htseq_count
+                  - mem: '4GB'
+                  - walltime: '10:00:00'
+        process: |
+                find {$self->data_dir} -type d -empty -delete

@@ -2,16 +2,17 @@
 global:
     # ROOT Directory configurations
     # Aligning against raw reeds
-    - indir: "data/raw"
+    - indir: "./"
     - outdir: "data/processed"
+    - root_in_dir: "./"
     - root_out_dir: "data/processed"
-    - root_in_dir: "data/raw"
     # Find Samples
     - sample_rule: (Sample.*)$
     - by_sample_outdir: 1
     - find_by_dir: 1
     # Analsis Dir Setup
     - analysis_dir: "data/analysis"
+    - jira_ticket: "NCB-234"
     - trimmomatic_dir: "{$self->root_out_dir}/{$sample}/trimmomatic"
     - raw_fastqc_dir: "{$self->root_out_dir}/{$sample}/raw_fastqc"
     # This variable is very specific to the sequencer used
@@ -26,6 +27,7 @@ global:
        - partition: 'serial'
        - commands_per_node: 1
        - cpus_per_task: 1
+       - account: 'gencore'
 rules:
     - concat_reads:
         local:
@@ -35,7 +37,7 @@ rules:
             - CAT2: "{$self->raw_fastq_dir}/*_R2*.fastq.gz"
             - HPC:
                - walltime: '02:00:00'
-               - mem: '10GB'
+               - mem: '30GB'
         process: |
               #TASK tags={$sample}_R1
               cat {$self->CAT1} >  {$self->READ1}
@@ -50,7 +52,7 @@ rules:
             - HPC:
                - deps: concat_reads
                - walltime: '07:00:00'
-               - mem: '20GB'
+               - mem: '30GB'
                - module: 'gencore gencore_dev gencore_qc'
                - cpus_per_task: 3
         process: |
@@ -79,8 +81,8 @@ rules:
               - "{$self->trimmomatic_dir}/{$sample}_trimmomatic.log"
             - HPC:
                - deps: concat_reads
-               - walltime: '10:00:00'
-               - mem: '20GB'
+               - walltime: '30:00:00'
+               - mem: '50GB'
                - module: 'gencore gencore_dev gencore_qc'
                - cpus_per_task: 6
         process: |
@@ -94,7 +96,7 @@ rules:
                 {$self->OUTPUT->[1]} \
                 {$self->OUTPUT->[2]} \
                 {$self->OUTPUT->[3]} \
-                TRAILING:3 LEADING:3 SLIDINGWINDOW:4:15 MINLEN:36
+                ILLUMINACLIP:/scratch/nd48/Tools/bin/trimmomatic_adapter.fa:2:30:10 TRAILING:3 LEADING:3 SLIDINGWINDOW:4:15 MINLEN:36
     - trimmomatic_fastqc:
         local:
             - indir: "{$self->trimmomatic_dir}"
@@ -103,7 +105,7 @@ rules:
             - HPC:
                - deps: trimmomatic
                - walltime: '07:00:00'
-               - mem: '20GB'
+               - mem: '30GB'
                - module: 'gencore gencore_dev gencore_qc'
                - cpus_per_task: 4
         process: |
@@ -134,8 +136,8 @@ rules:
             - "{$self->TR2}_2SE.fastq.gz"
           - HPC:
             - deps: trimmomatic_fastqc
-            - walltime: '05:00:00'
-            - mem: '28GB'
+            - walltime: '25:00:00'
+            - mem: '40GB'
             - module: 'gencore gencore_dev gencore_qc'
         process: |
             #TASK tags={$sample}
@@ -155,22 +157,21 @@ rules:
             - create_outdir: 0
             - HPC:
               - deps: trimmomatic
-              - walltime: '48:00:00'
+              - walltime: '04:00:00'
               - mem: '20GB'
         process: |
                 #TASK tags={$sample}
                 rm -rf {$self->INPUT}
     - multiqc:
         local:
-            - outdir: "{$self->root_out_dir}/multiqc"
-            - create_outdir: 0
+            - create_outdir: 1
             - override_process: 1
             - HPC:
               - deps: 'trimmomatic_fastqc,raw_fastqc'
               - walltime: '10:00:00'
-              - mem: '20GB'
+              - mem: '30GB'
         process: |
                 #TASK tags={$sample}
                 multiqc {$self->root_out_dir} \
-                  -i {$self->ticket} \
-                  -n {$self->outdir}/{$self->ticket}.html
+                  -i {$self->jira_ticket} \
+                  -n {$self->root_out_dir}/{$self->ticket}.html {$self->root_out_dir}/ 

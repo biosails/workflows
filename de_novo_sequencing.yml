@@ -1,0 +1,160 @@
+---
+global:
+  - indir: data/processed
+  - outdir: data/analysis
+  - root_analysis_dir: data/analysis
+  - analysis: 'data/analysis/{$sample}'
+  - analysis_dir: 'data/analysis/{$sample}'
+  - spades_dir: 'data/analysis/{$sample}/spades'
+  - abyss: 'data/analysis/{$sample}/abyss_pe'
+  - abyss_dir: 'data/analysis/{$sample}/abyss_pe'
+  - gapcloser_spades_dir: 'data/analysis/{$sample}/gapcloser_spades'
+  - gapcloser_abyss_dir: 'data/analysis/{$sample}/gapcloser_spades'
+  - trimmomatic_dir: 'data/processed/{$sample}/trimmomatic'
+  - trimmomatic: 'data/processed/{$sample}/trimmomatic'
+  - TR1: '{$self->trimmomatic_dir}/{$sample}_read1_trimmomatic'
+  - TR2: '{$self->trimmomatic_dir}/{$sample}_read2_trimmomatic'
+  - kmer_start: 25
+  - kmer_end: 65
+  - kmer_step: 5
+  - file_rule: (Sample_.*)$
+  - by_sample_outdir: 1
+  - find_by_dir: 1
+  - wait: 0
+  - gapClose: '{$self->root_analysis_dir}/{$sample}/gapclose.config'
+  - HPC:
+      - account: gencore
+      - module: gencore gencore_dev gencore_de_novo_genomic
+      - partition: serial
+      - commands_per_node: 1
+      - cpus_per_task: 1
+rules:
+  - stash_kmers:
+      local:
+        - override_process: 1
+        - create_outdir: 0
+        - verbose: 0
+      process: |
+        {
+          my @kmers = ();
+          for (my $i = $self->kmer_start; $i <= $self->kmer_end; $i += $self->kmer_step) {
+            push(@kmers, $i);
+          }
+          $self->stash->{kmers} = \@kmers;
+          ($SILENTLY);
+        }
+  - abyss_pe:
+      local:
+        - indir: '{$self->root}'
+        - HPC:
+            - mem: 100GB
+            - cpus_per_task: 24
+            - walltime: 10:00:00
+      process: |
+        {
+          my @kmers = @{$self->stash->{kmers}};
+          my $indir = $self->indir;
+          my $outdir = $self->outdir;
+
+          $self->stash->{abyss_assemblies} = [];
+
+          foreach my $kmer (@kmers){
+
+          print <<EOF;
+        #KMER SIZE $kmer
+        #TASK tags=$sample_$kmer
+        unset PBS_NODEFILE && \\
+        mkdir -p $outdir/Abyss_k$kmer && \\
+        abyss-pe -j 24 \\
+           lib='pe1' \\
+           k=$kmer \\
+           name=Abyss.assembly-k$kmer \\
+           pe1='$self->{TR1}_1PE.fastq.gz $self->{TR2}_2PE.fastq.gz' \\
+           se='$self->{TR1}_1SE.fastq.gz $self->{TR2}_2SE.fastq.gz' \\
+           --directory=$outdir/Abyss_k$kmer
+
+        EOF
+
+            my $abyss_assembly = "$self->{abyss_dir}/Abyss_k$kmer/Abyss.assembly-k$kmer-scaffolds.fa";
+            push(@{$self->stash->{abyss_assemblies}}, $abyss_assembly);
+
+          }
+        ($SILENTLY);
+        }
+  - spades:
+      local:
+        - indir: '{$self->root}'
+        - outdir: '{$self->spades_dir}'
+        - HPC:
+            - mem: 100GB
+            - cpus_per_task: 12
+            - walltime: 12:00:00
+      process: |
+        spades.py \
+         -t 12 -m 300 \
+         --careful \
+         -o  {$self->spades_dir} \
+         -1 {$self->TR1}_1PE.fastq.gz \
+         -2 {$self->TR2}_2PE.fastq.gz \
+         -s {$self->TR1}_1SE.fastq.gz \
+         -s {$self->TR2}_2SE.fastq.gz
+  # - gapcloser_spades:
+  #     local:
+  #       - indir: '{$self->root}'
+  #       - HPC:
+  #           - deps: spades
+  #           - mem: 100GB
+  #           - cpus_per_task: 8
+  #           - walltime: 10:00:00
+  #     process: |
+  #       GapCloser \
+  #         -t 8 \
+  #         -l 155 \
+  #         -a {$self->spades_dir}/scaffolds.fasta \
+  #         -b {$self->gapClose} \
+  #         -o {$self->outdir}/gapclosed_spades.fasta
+  # - gapcloser_abyss:
+  #     local:
+  #       - indir: '{$self->root}'
+  #       - HPC:
+  #           - deps: abyss_pe
+  #           - mem: 100GB
+  #           - cpus_per_task: 8
+  #           - walltime: 10:00:00
+  #     process: |
+  #       {
+  #         my @kmers = @{$self->stash->{kmers}};
+  #         my $indir = $self->indir;
+  #         my $outdir = $self->outdir;
+  #
+  #         foreach my $kmer (@kmers){
+  #         print <<EOF;
+  #       #TASK tags=$sample_$kmer
+  #       mkdir -p $self->{outdir}/Abyss_k$kmer && \\
+  #       GapCloser \\
+  #         -t 8 \\
+  #         -l 155 \\
+  #         -a $self->{abyss_dir}/Abyss_k$kmer/Abyss.assembly-k$kmer-scaffolds.fa \\
+  #         -b $self->{gapClose} \\
+  #         -o $self->{outdir}/Abyss_k$kmer/gapclosed_abyss$kmer.fasta
+  #       EOF
+  #         }
+  #       ($SILENTLY);
+  #       }
+  # - quast:
+  #     local:
+  #       - indir: '{$self->root}'
+  #       - HPC:
+  #           - deps: 'gapcloser_abyss,gapcloser_spades'
+  #           - mem: 100GB
+  #           - cpus_per_task: 14
+  #           - walltime: 10:00:00
+  #     process: |
+  #       #TASK tags=$sample
+  #       #quast -t 14 \
+  #       #    -o {$self->outdir} \
+  #       #    -l SPADES,AbySSk45 \
+  #       #    -s {$self->spades_dir}/scaffolds.fasta {join(" ", @{$self->stash->{abyss_assemblies}})} \
+  #       #    -f \
+  #       #    -1 {$self->TR1}_1PE.fastq.gz \
+  #       #    -2 {$self->TR2}_2PE.fastq.gz
