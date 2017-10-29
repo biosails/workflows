@@ -11,6 +11,7 @@ global:
     - by_sample_outdir: 1
     - find_by_dir: 1
     # Analsis Dir Setup
+    - jira_ticket: "NCB-234"
     - analysis_dir: "data/analysis"
     - trimmomatic_dir: "{$self->root_out_dir}/{$sample}/trimmomatic"
     - raw_fastqc_dir: "{$self->root_out_dir}/{$sample}/raw_fastqc"
@@ -172,5 +173,5 @@ rules:
         process: |
                 #TASK tags={$sample}
                 multiqc {$self->root_out_dir} \
-                  -i {$self->ticket} \
-                  -n {$self->outdir}/{$self->ticket}.html
+                  -i {$self->jira_ticket} \
+                  -n {$self->outdir}/{$self->jira_ticket}.html

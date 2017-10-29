@@ -171,7 +171,5 @@ rules:
               - walltime: '10:00:00'
               - mem: '30GB'
         process: |
-                #TASK tags={$sample}
-                multiqc {$self->root_out_dir} \
-                  -i {$self->jira_ticket} \
-                  -n {$self->root_out_dir}/{$self->ticket}.html {$self->root_out_dir}/ 
+                multiqc -i {$self->jira_ticket} \
+                  -n {$self->root_out_dir}/{$self->jira_ticket}.html {$self->root_out_dir}/

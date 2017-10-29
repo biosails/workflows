@@ -134,4 +134,4 @@ rules:
                 #TASK tags={$sample}
                 multiqc {$self->root_out_dir} \
                   -i {$self->jira_ticket} \
-                  -n {$self->root_out_dir}/{$self->ticket}.html {$self->root_out_dir}/ 
+                  -n {$self->root_out_dir}/{$self->jira_ticket}.html {$self->root_out_dir}/ 
