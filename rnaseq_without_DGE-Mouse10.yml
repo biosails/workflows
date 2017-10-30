@@ -75,8 +75,9 @@ rules:
         ## We move data around here for downstream analysis
         ## Some tool downstream requires its data to be in the same directory
         local:
+                - tophat2_dir: 'data/analysis/{$sample}/tophat2'
                 - outdir: "{$self->analysis_dir}"
-                - INPUT: "{$self->indir}/accepted_hits.bam"
+                - INPUT: "{$self->tophat2_dir}/accepted_hits.bam"
                 - OUTPUT: "{$self->analysis_dir}/BAMs/{$sample}_accepted_hits.bam"
                 - HPC:
                   - deps: cufflinks

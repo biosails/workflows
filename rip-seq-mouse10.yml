@@ -1,0 +1,58 @@
+---
+global:
+    # ROOT Directory configurations
+    - indir:     data/processed
+    - outdir:    data/analysis
+    # Find Samples
+    - sample_rule: (Sample.*)$
+    - by_sample_outdir: 1
+    - find_by_dir: 1
+    # Analsis Dir Setup
+    - analysis_dir: data/analysis/
+    - raw_dir: data/raw
+    - rename_dir: data/raw/rename
+    - trimmomatic_dir: "data/processed/{$sample}/trimmomatic"
+    - trimmomatic_fastqc_dir: "data/processed/{$sample}/trimmomatic_fastqc"
+    - htseq_dir: "data/analysis/Counts"
+    #The data_dirs and very site specific variables  - be sure to change these!
+    - data_dir: "/scratch/Reference_Genomes/Public/Vertebrate_mammalian/Mus_musculus/ENSEMBL-release-82-GRCm38"
+    - ANNOTATION:  "{$self->data_dir}/tr_Mus_musculus_GRCm38/Mus_musculus.GRCm38.82"
+    - REFERENCE: "{$self->data_dir}/Mus_musculus.GRCm38.dna.toplevel"
+    #HPC Directives
+    - HPC:
+       - module: 'gencore gencore_dev gencore_rnaseq'
+       - partition: 'serial'
+       - commands_per_node: 1
+       - cpus_per_task: 1
+       - account: 'gencore'
+rules:
+    - create_analysis_dirs:
+        local:
+                - create_outdir: 0
+                - override_process: 1
+                - HPC:
+                   - walltime: '02:00:00'
+                   - mem: '4GB'
+                   - commands_per_node: 100
+        process: |
+            mkdir -p {$self->analysis_dir}/FPKMs &&  \
+            mkdir -p {$self->analysis_dir}/BAMs  && \
+            mkdir -p {$self->analysis_dir}/Transcripts && \
+            mkdir -p {$self->analysis_dir}/CUFFDIFF && \
+            mkdir -p {$self->analysis_dir}/Counts/DESeq2
+    - tophat2:
+        local:
+                - create_outdir: 1
+                - indir: "{$self->trimmomatic_dir}"
+                - HPC:
+                   - deps: create_analysis_dirs
+                   - walltime: '12:00:00'
+                   - mem: '60GB'
+                   - cpus_per_task: 12
+        process: |
+            #TASK tags={$sample}
+            tophat2 -o {$self->outdir} \
+            -p 12 --transcriptome-index={$self->ANNOTATION} \
+                {$self->{REFERENCE}} \
+                {$self->trimmomatic_dir}/{$sample}_read1_trimmomatic_1PE.fastq.gz \
+                {$self->trimmomatic_dir}/{$sample}_read2_trimmomatic_2PE.fastq.gz

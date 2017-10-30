@@ -62,7 +62,7 @@ rules:
 
           print <<EOF;
         #KMER SIZE $kmer
-        #TASK tags=$sample_$kmer
+        #TASK tags=$sample_\$kmer
         unset PBS_NODEFILE && \\
         mkdir -p $outdir/Abyss_k$kmer && \\
         abyss-pe -j 24 \\
@@ -129,7 +129,7 @@ rules:
   #
   #         foreach my $kmer (@kmers){
   #         print <<EOF;
-  #       #TASK tags=$sample_$kmer
+  #       #TASK tags=$sample_\$kmer
   #       mkdir -p $self->{outdir}/Abyss_k$kmer && \\
   #       GapCloser \\
   #         -t 8 \\
