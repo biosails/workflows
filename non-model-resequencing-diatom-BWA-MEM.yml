@@ -1,0 +1,300 @@
+---
+global:
+    # Initial Directory Setup
+    - indir:      "data/processed"
+    - outdir:     "data/analysis"
+    # Find Samples
+    - sample_rule: (Sample.*)$
+    - find_by_dir: 1
+    # Output Directory Structure
+    - by_sample_outdir: 1
+    # Processed Dirs
+    - trimmomatic_dir: "data/processed/{$sample}/trimmomatic"
+    - raw_fastqc_dir: "data/processed/{$sample}"
+    # Analysis Dirs
+    - bwa_mem_dir: "data/analysis/{$sample}/bwa_mem"
+    - samtools_dir: "data/analysis/{$sample}/samtools"
+    - picard_dir: "data/analysis/{$sample}/picard"
+    - gatk_dir:   "data/analysis/{$sample}/gatk"
+    - freebayes_dir: "data/analysis/{$sample}/freebayes"
+    # Tmp Dir - Reference it as the environmental variable TMPDIR
+    - bwa_mem_tmp_dir: "{$ENV{TMPDIR}}/{$sample}/bwa_mem/tmp"
+    # Reference Data
+    - bwa_mem_reference: "/scratch/Reference_Genomes/Public/Plant/Phaeodactylum_tricornutum/NCBI_ASM15095v2/Phaeodactylum_tricornutum.ASM15095v2.dna.toplevel"
+    - reference:  "{$self->bwa_mem_reference}.fa"
+    # GATK Args
+    - library:    1
+    - pcrModel:   0
+    - goldenVcf:  0
+    - ploidy:     2
+    # Shortcuts for long read names
+    - READ1:      "{$self->raw_fastqc_dir}/{$sample}_read1.fastq.gz"
+    - READ2:      "{$self->raw_fastqc_dir}/{$sample}_read2.fastq.gz"
+    - TR1:        "{$self->trimmomatic_dir}/{$sample}_read1_trimmomatic"
+    - TR2:        "{$self->trimmomatic_dir}/{$sample}_read2_trimmomatic"
+    # HPC Directives
+    - HPC:
+       - account: 'gencore'
+       - partition: 'serial'
+       - module:  'gencore gencore_dev gencore_variant_detection/1.0'
+       - cpus_per_task: 1
+       - commands_per_node: 1
+rules:
+    - bwa_mem:
+        local:
+                - indir: "{$self->trimmomatic_dir}"
+                - outdir: "{$self->bwa_mem_dir}"
+                - INPUT: "{$self->trimmomatic_dir}/{$sample}"
+                - OUTPUT: "{$self->bwa_mem_dir}/{$sample}_aligned.sam"
+                - HPC:
+                  - mem: '60GB'
+                  - cpus_per_task: 12
+                  - walltime: '12:00:00'
+        process:  |
+                #TASK tags={$sample}
+                bwa mem -t 12 -M \
+                     {$self->reference} \
+                     {$self->INPUT}_read1_trimmomatic_1PE.fastq.gz \
+                     {$self->INPUT}_read2_trimmomatic_2PE.fastq.gz \
+                     > {$self->OUTPUT}
+    - samtools_view:
+        local:
+                - outdir: "{$self->samtools_dir}"
+                - INPUT: "{$self->bwa_mem_dir}/{$sample}_aligned.sam"
+                - OUTPUT: "{$self->samtools_dir}/{$sample}_aligned.bam"
+                - HPC:
+                  - deps: 'bwa_mem'
+                  - mem: '50GB'
+                  - walltime: '14:00:00'
+        process:  |
+                #TASK tags={$sample}
+                samtools view -b -S {$self->INPUT} \
+                    > {$self->OUTPUT}
+    - picard_cleansam:
+        local:
+                - indir: "{$self->samtools_dir}"
+                - outdir: "{$self->picard_dir}"
+                - INPUT: "{$self->samtools_dir}/{$sample}_aligned.bam"
+                - OUTPUT: "{$self->picard_dir}/{$sample}_cleaned.aligned.bam"
+                - HPC:
+                  - deps: 'samtools_view'
+                  - mem: '50GB'
+                  - walltime: '14:00:00'
+        process:  |
+                #TASK tags={$sample}
+                picard -Xmx2g CleanSam \
+                    INPUT={$self->INPUT} \
+                    O={$self->OUTPUT} \
+                    TMP_DIR={$self->bwa_mem_tmp_dir}
+    - picard_sortsam:
+        local:
+                - indir: "{$self->picard_dir}"
+                - outdir: "{$self->picard_dir}"
+                - OUTPUT: "{$self->picard_dir}/{$sample}_csorted.cleaned.aligned.bam"
+                - HPC:
+                  - deps: 'picard_cleansam'
+                  - mem: '50GB'
+                  - walltime: '14:00:00'
+        process:  |
+                #TASK tags={$sample}
+                picard -Xmx2g  SortSam \
+                    INPUT={$self->INPUT} \
+                    O={$self->OUTPUT} \
+                    SO=coordinate \
+                    TMP_DIR={$self->bwa_mem_tmp_dir}
+    - picard_collect_multiple_metrics:
+        local:
+                - indir: "{$self->picard_dir}"
+                - outdir: "{$self->picard_dir}"
+                - INPUT: "{$self->picard_dir}/{$sample}_csorted.cleaned.aligned.bam"
+                - OUTPUT: "{$self->picard_dir}/{$sample}_collmulmetr.csorted.cleaned.aligned"
+                - PROGRAM: "PROGRAM=CollectAlignmentSummaryMetrics PROGRAM=CollectInsertSizeMetrics PROGRAM=QualityScoreDistribution PROGRAM=MeanQualityByCycle"
+                - HPC:
+                  - deps: 'picard_sortsam'
+                  - mem: '25GB'
+                  - walltime: '03:00:00'
+        process:  |
+                #TASK tags={$sample}
+                picard -Xmx2g CollectMultipleMetrics \
+                    TMP_DIR={$self->bwa_mem_tmp_dir} \
+                    I={$self->INPUT} \
+                    O={$self->OUTPUT} \
+                    {$self->PROGRAM}
+    - picard_add_or_replace_groups:
+        local:
+                - indir: "{$self->picard_dir}"
+                - outdir: "{$self->picard_dir}"
+                - INPUT: "{$self->picard_dir}/{$sample}_csorted.cleaned.aligned.bam"
+                - OUTPUT: "{$self->picard_dir}/{$sample}_withrg.csorted.cleaned.aligned.bam"
+                - ARGS: "SORT_ORDER=coordinate RGID=1 RGLB={$self->library} RGPL=illumina RGPU=unit1 RGSM={$sample} RGCN=NYUAD"
+                - HPC:
+                  - deps: 'picard_sortsam'
+                  - mem: '50GB'
+                  - walltime: '14:00:00'
+        process:  |
+                #TASK tags={$sample}
+                picard -Xmx2g AddOrReplaceReadGroups \
+                    I={$self->INPUT} \
+                    O={$self->OUTPUT} \
+                    {$self->ARGS}
+    - picard_bamindex:
+        local:
+                - indir: "{$self->picard_dir}"
+                - outdir: "{$self->picard_dir}"
+                - INPUT: "{$self->picard_dir}/{$sample}_withrg.csorted.cleaned.aligned.bam"
+                - OUTPUT: "{$self->picard_dir}/{$sample}_withrg.csorted.cleaned.aligned.bam"
+                - HPC:
+                  - deps: 'picard_add_or_replace_groups'
+                  - mem: '50GB'
+                  - walltime: '14:00:00'
+        process:  |
+                #TASK tags={$sample}
+                picard -Xmx2g BuildBamIndex \
+                    I={$self->INPUT} \
+                    TMP_DIR={$self->bwa_mem_tmp_dir}
+    - picard_markdups:
+        local:
+                - indir: "{$self->picard_dir}"
+                - outdir: "{$self->picard_dir}"
+                - INPUT: "{$self->picard_dir}/{$sample}_withrg.csorted.cleaned.aligned.bam"
+                - OUTPUT: "{$self->picard_dir}/{$sample}_mdup.withrg.csorted.cleaned.aligned.bam"
+                - metrics_file: "{$self->picard_dir}/{$sample}_markDup_metrics_file.txt"
+                - HPC:
+                  - deps: 'picard_bamindex'
+                  - mem: '60GB'
+                  - walltime: '20:00:00'
+        process:  |
+                #TASK tags={$sample}
+                picard -Xmx2g MarkDuplicates \
+                    REMOVE_DUPLICATES=true \
+                    M={$self->metrics_file} \
+                    I={$self->INPUT} \
+                    O={$self->OUTPUT} \
+                    MAX_FILE_HANDLES_FOR_READ_ENDS_MAP=100 \
+                    TMP_DIR={$self->bwa_mem_tmp_dir}
+    - picard_bamindex2:
+        local:
+                - indir: "{$self->picard_dir}"
+                - outdir: "{$self->picard_dir}"
+                - INPUT: "{$self->picard_dir}/{$sample}_mdup.withrg.csorted.cleaned.aligned.bam"
+                - OUTPUT: "{$self->picard_dir}/{$sample}_mdup.withrg.csorted.cleaned.aligned.bam"
+                - HPC:
+                  - deps: 'picard_markdups'
+                  - mem: '50GB'
+                  - walltime: '12:00:00'
+        process:  |
+                #TASK tags={$sample}
+                picard -Xmx2g BuildBamIndex \
+                    I={$self->INPUT} \
+                    TMP_DIR={$self->bwa_mem_tmp_dir}
+    - samtools_mpileup:
+        local:
+                - indir: "{$self->samtools_dir}"
+                - outdir: "{$self->samtools_dir}"
+                - INPUT: "{$self->picard_dir}/{$sample}_mdup.withrg.csorted.cleaned.aligned.bam"
+                - SAM: "{$self->samtools_dir}/{$sample}_mdup.withrg.csorted.cleaned.aligned.bam"
+                - OUTPUT: "{$self->samtools_dir}/{$sample}_aligned.sorted.vcf.gz"
+                - HPC:
+                  - deps: 'picard_bamindex2'
+                  - mem: '50GB'
+                  - walltime: '12:00:00'
+        process:  |
+                #TASK tags={$sample}
+                rm -rf {$self->OUTPUT} && \
+                ln -s -f {$self->INPUT} {$self->SAM} && \
+                samtools index {$self->SAM} && \
+                samtools mpileup -ugf {$self->reference} \
+                    {$self->INPUT} | bcftools call -vmO z -o \
+                    {$self->OUTPUT}
+    - tabix_index:
+        local:
+                - indir: "{$self->samtools_dir}"
+                - outdir: "{$self->samtools_dir}"
+                - INPUT: "{$self->samtools_dir}/{$sample}_aligned.sorted.vcf.gz"
+                - OUTPUT: "{$self->samtools_dir}/{$sample}_aligned.sorted.vcf.gz"
+                - HPC:
+                  - deps: 'samtools_mpileup'
+                  - mem: '50GB'
+                  - walltime: '14:00:00'
+        process:  |
+                #TASK tags={$sample}
+                tabix -p vcf {$self->INPUT}
+    - bcftools_stats:
+        local:
+                - indir: "{$self->samtools_dir}"
+                - outdir: "{$self->samtools_dir}"
+                - INPUT: "{$self->samtools_dir}/{$sample}_aligned.sorted.vcf.gz"
+                - OUTPUT: "{$self->samtools_dir}/{$sample}_aligned.sorted.vcf.stats"
+                - HPC:
+                  - deps: 'tabix_index'
+                  - mem: '30GB'
+                  - walltime: '05:00:00'
+        process:  |
+                #TASK tags={$sample}
+                bcftools stats -F {$self->reference} -s - {$self->INPUT} \
+                    > {$self->OUTPUT}
+    - bcftools_filter:
+        local:
+                - indir: "{$self->samtools_dir}"
+                - outdir: "{$self->samtools_dir}"
+                - INPUT: "{$self->samtools_dir}/{$sample}_aligned.sorted.vcf.gz"
+                - OUTPUT: "{$self->samtools_dir}/{$sample}_filteredQ10.aligned.sorted.vcf.gz"
+                - HPC:
+                  - deps: 'tabix_index'
+                  - mem: '60GB'
+                  - walltime: '24:00:00'
+        process:  |
+                #TASK tags={$sample}
+                bcftools filter -O z \
+                    -o {$self->OUTPUT} \
+                    -s LOWQUAL -i'%QUAL>10' \
+                    {$self->INPUT}
+    - freebayes_vcf_calling:
+         local:
+                 - indir: "{$self->picard_dir}"
+                 - outdir: "{$self->freebayes_dir}"
+                 - INPUT: "{$self->picard_dir}/{$sample}_mdup.withrg.csorted.cleaned.aligned.bam"
+                 - OUTPUT: "{$self->freebayes_dir}/{$sample}_freebayes_raw.vcf"
+                 - HPC:
+                   - deps: 'samtools_mpileup'
+                   - mem: '80GB'
+                   - walltime: '28:00:00'
+         process: |
+                #TASK tags={$sample}
+                freebayes -f {$self->reference} \
+                  {$self->INPUT} \
+                  > {$self->OUTPUT}
+    - freebayes_vcffilter:
+         local:
+                 - indir: "{$self->freebayes_dir}"
+                 - outdir: "{$self->freebayes_dir}"
+                 - INPUT: "{$self->freebayes_dir}/{$sample}_freebayes_raw.vcf"
+                 - OUTPUT: "{$self->freebayes_dir}/{$sample}_filtered.freebayes.vcf"
+                 - HPC:
+                   - deps: 'freebayes_vcf_calling'
+                   - mem: '50GB'
+                   - walltime: '25:00:00'
+         process: |
+                #TASK tags={$sample}
+                vcffilter -f "QUAL > 1 & QUAL / AO > 10 & SAF > 0 & SAR > 0 & RPR > 1 & RPL > 1" \
+                  {$self->INPUT} > {$self->OUTPUT}
+    - gatk_haplotypecaller:
+        local:
+                - indir: "{$self->picard_dir}"
+                - outdir: "{$self->gatk_dir}"
+                - INPUT: "{$self->picard_dir}/{$sample}_mdup.withrg.csorted.cleaned.aligned.bam"
+                - OUTPUT: "{$self->gatk_dir}/{$sample}_haplotype.realigned.withrg.csorted.cleaned.aligned.vcf"
+                - ARGS: "-stand_emit_conf 10 -stand_call_conf 30 --genotyping_mode DISCOVERY"
+                - HPC:
+                   - deps: 'picard_bamindex2'
+                   - mem: '80GB'
+                   - walltime: '50:00:00'
+                   - cpus_per_task: 12
+        process:  |
+                #TASK tags={$sample}
+                gatk -T HaplotypeCaller \
+                    -nct 12 \
+                    -R {$self->reference} \
+                    -I {$self->INPUT} \
+                    {$self->ARGS} \
+                    -o {$self->OUTPUT}
